@@ -1,61 +1,88 @@
 # Sistema de Agente Inteligente para Automatización Organizacional - Aseguradora del Pacífico
 
 ## 1. Descripción General del Proyecto
-Este repositorio contiene la implementación técnica correspondiente a la **Evaluación Parcial 2 (EP2)** de la asignatura *Ingeniería de Soluciones con IA (ISY0101)*. El proyecto evoluciona desde un prototipo básico hacia un **agente inteligente autónomo y funcional**, diseñado para resolver requerimientos organizacionales en el rubro asegurador (*Aseguradora del Pacífico*). 
+
+Este repositorio contiene la implementación técnica correspondiente a la **Evaluación Parcial 2 (EP2)** de la asignatura *Ingeniería de Soluciones con IA (ISY0101)*. El proyecto evoluciona desde un prototipo básico hacia un **agente inteligente autónomo y funcional**, diseñado para resolver requerimientos organizacionales en el rubro asegurador (*Aseguradora del Pacífico*).
 
 El sistema integra capacidades avanzadas de consulta transaccional, recuperación semántica de normativas (RAG), escritura/registro en bases de datos y persistencia conversacional en flujos prolongados, utilizando arquitecturas basadas en grafos de estado (**LangGraph**), procesamiento de lenguaje de alta velocidad (**Groq** con `openai/gpt-oss-20b`) y frameworks modernos de IA.
 
 ---
 
 ## 2. Arquitectura del Sistema y Módulos
-La solución se ha estructurado bajo un enfoque modular desacoplado, lo que garantiza alta escalabilidad, mantenimiento simplificado y compatibilidad técnica:
 
-```text
+La solución se ha estructurado bajo un enfoque modular desacoplado, garantizando escalabilidad y compatibilidad técnica:
+
+```
 /proyecto-aseguradora-ep2
 │
-├── 1. Módulo de Inicialización y Configuración Segura (Secrets)
+├── 1. Módulo de Inicialización y Configuración Segura (Google Colab Secrets / GROQ_API_KEY)
 ├── 2. Módulo de Memoria de Largo Plazo / RAG (FAISS & FakeEmbeddings)
 ├── 3. Módulo de Herramientas de Negocio (Tools: Consulta, Escritura y Razonamiento)
 ├── 4. Módulo de Orquestación y Grafo de Estados (LangGraph & MemorySaver)
 └── 5. Módulo de Ejecución y Pruebas (Validación de Sesiones Multiturno)
 ```
 
-### Detalle de Integración entre Módulos:
-1. **Módulo de Seguridad (`google.colab.userdata`):** Centraliza la ingestión de credenciales sensibles (`GROQ_API_KEY`) mediante secretos encriptados, aislando la lógica de negocio de la exposición de claves en texto plano.
-2. **Módulo de Recuperación Semántica - RAG (Largo Plazo):** Utiliza un sistema vectorial local basado en `FAISS` y `CharacterTextSplitter`. Indexa los documentos institucionales y normativos de la aseguradora para que el agente pueda responder consultas complejas sobre coberturas de pólizas.
-3. **Módulo de Herramientas Funcionales (`@tool`):** Define las capacidades operativas del agente:
-   * `buscar_normativa_documental`: Conecta la consulta del usuario con el motor vectorial RAG.
-   * `consultar_estado_poliza`: Actúa como pasarela hacia el sistema transaccional de la compañía para verificar estados de clientes (ej. `CLI-001`).
-   * `registrar_modificacion_sistema`: Capacidad de escritura para registrar incidencias o actualizaciones organizacionales.
-4. **Módulo de Orquestación y Memoria de Corto Plazo (`LangGraph` + `MemorySaver`):** Modela el comportamiento del agente como un ciclo iterativo de razonamiento (*ReAct*). El uso de `MemorySaver` asociado a un `thread_id` permite conservar el historial conversacional entre distintos turnos de interacción sin perder el hilo conductor.
+---
+
+## 3. Diagrama de Orquestación y Flujo de Trabajo
+
+El siguiente diagrama detalla cómo interactúan los componentes dentro del grafo de ejecución de `LangGraph` al procesar una consulta del usuario:
+
+```mermaid
+graph TD
+    User([Usuario]) -->|Entrada / Prompt| AgentNode[Nodo Agente: LLM ChatGroq]
+    
+    AgentNode --> Decision{¿Requiere Herramienta?}
+    
+    Decision -->|Sí / Tool Call| ToolExecution[Nodo Herramientas: ToolNode]
+    
+    ToolExecution -->|1. buscar_normativa_documental| RAG[(Base Vectorial FAISS / RAG)]
+    ToolExecution -->|2. consultar_estado_poliza| DB[(BD Transaccional Clientes)]
+    ToolExecution -->|3. registrar_modificacion_sistema| System[(Sistema de Escritura)]
+    
+    RAG --> AgentNode
+    DB --> AgentNode
+    System --> AgentNode
+    
+    Decision -->|No / Respuesta Final| MemoryCheck[(MemorySaver: Corto Plazo)]
+    MemoryCheck --> Output([Respuesta al Usuario])
+```
 
 ---
 
-## 3. Decisiones de Diseño Técnico
+## 4. Ejemplos de Flujos de Trabajo (Casos de Prueba)
 
-* **Elección del Proveedor de Inferencia (Groq):** Se seleccionó Groq para optimizar la latencia de inferencia y garantizar respuestas en tiempo real durante la demostración en vivo, manteniendo total compatibilidad con la interfaz de llamadas a herramientas (*tool-calling*) de LangChain.
-* **Gestión de Embeddings Locales (`FakeEmbeddings`):** Para evitar dependencias externas de costos o limitaciones de red en entornos académicos controlados, se implementó una vectorización local optimizada que alimenta eficientemente el almacén FAISS.
-* **Persistencia de Estado Basada en Grafos:** A diferencia de los chatbots basados en cadenas lineales (*Chains*), LangGraph permite un control determinista sobre las transiciones (decidir si se debe invocar una herramienta o finalizar la respuesta), ofreciendo robustez ante fallos y condiciones cambiantes del entorno.
+### **Flujo 1: Consulta Institucional (Recuperación Semántica RAG)**
+* **Entrada del Usuario:** 
+  > *"¿Qué cubren las pólizas vehiculares en Aseguradora del Pacífico?"*
+* **Proceso del Agente:**
+  1. El LLM detecta que necesita información normativa y genera una llamada a la herramienta `buscar_normativa_documental`.
+  2. El recuperador FAISS busca en la base documental institucional y devuelve los detalles de la póliza `POL-V01`.
+  3. El agente procesa la información y emite una respuesta estructurada con formato claro.
+
+### **Flujo 2: Consulta Transaccional y Continuidad de Memoria (Corto Plazo)**
+* **Entrada del Usuario (Turno Siguiente):** 
+  > *"Excelente. Ahora revísame el estado del cliente con ID CLI-001."*
+* **Proceso del Agente:**
+  1. Gracias al uso de `MemorySaver` vinculado al `thread_id` (`sesion-evaluacion-ep2-groq-01`), el agente conserva el contexto de la conversación previa.
+  2. El LLM identifica que debe consultar datos transaccionales y ejecuta la herramienta `consultar_estado_poliza` con el parámetro `CLI-001`.
+  3. Se recupera el registro de *Juan Pérez* con póliza `POL-9981` y estado `Vigente`, cerrando el ciclo operativo con autonomía.
 
 ---
 
-## 4. Instrucciones de Instalación y Ejecución
+## 5. Decisiones de Diseño Técnico
 
-### Prerrequisitos
-* Entorno de ejecución de Python (Google Jupyter Notebook / Google Colab).
-* Clave de API de Groq configurada en los secretos del entorno bajo la variable `GROQ_API_KEY`.
+* **Elección del Proveedor de Inferencia (Groq):** Optimiza la latencia de inferencia garantizando respuestas en tiempo real para demostraciones en vivo, manteniendo compatibilidad total con *tool-calling*.
+* **Gestión de Embeddings Locales (`FakeEmbeddings`):** Evita dependencias externas de costos o limitaciones de red en entornos académicos controlados.
+* **Persistencia de Estado Basada en Grafos:** A diferencia de las cadenas lineales, `LangGraph` ofrece control determinista sobre las transiciones y robustez ante fallos.
 
-### Pasos de Ejecución:
+---
+
+## 6. Instrucciones de Instalación y Ejecución
+
 1. **Instalación de Dependencias:**
-   ```bash
+   ```python
    !pip install -q langchain langchain-groq langchain-community faiss-cpu python-dotenv langgraph
    ```
-2. **Configuración del Entorno y Carga de Secretos:**
-   Ejecute el bloque de inicialización para importar las librerías y enlazar la clave de API de forma segura.
-3. **Construcción del Grafo y Definición de Herramientas:**
-   Ejecute sucesivamente los bloques de RAG, Herramientas y Orquestación.
-4. **Validación de la Demo en Vivo:**
-   Ejecute el bloque final de pruebas multiturno para comprobar la persistencia de la sesión y la autonomía en la selección de herramientas:
-   ```python
-   config = {"configurable": {"thread_id": "sesion-evaluacion-ep2-groq-01"}}
-   ```
+2. **Carga Segura de Credenciales:** Configure su clave en los secretos de Colab como `GROQ_API_KEY`.
+3. **Ejecución del Agente:** Ejecute secuencialmente los bloques de RAG, herramientas, orquestación y el bloque de pruebas multiturno con el `thread_id` correspondiente.
